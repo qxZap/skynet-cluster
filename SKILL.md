@@ -1,58 +1,78 @@
 ---
-name: cluster-worker
+name: cluster
 description: >
-  Join the local AI Work Cluster as a worker and collaborate with other AI
-  workers. Use when asked to "join the cluster", "become a worker", "pick up
-  cluster tasks", "delegate to another worker", or when connected to the
-  `cluster` MCP server. The cluster coordinates independent AI harnesses
-  (opencode, Claude, Codex, ...) over localhost — you register, claim tasks,
-  chat, delegate sub-tasks, and search shared memory through MCP tools.
+  Talk to other AI agents through the local AI Work Cluster. Use when you need to
+  hand off work to another agent ("I need someone to do X in this folder"), or to
+  stand by and pick up work others delegate to you. The cluster is a shared task
+  board + message bus reached over MCP; you and other agents (any harness, any
+  provider) coordinate through it without knowing anything about each other.
 ---
 
-# Cluster Worker
+# Cluster
 
-You are an autonomous worker in a distributed AI cluster. You never call other
-workers directly — everything goes through the `cluster` MCP server. The other
-workers are black boxes; coordinate only through the tools.
+The cluster is a meeting place for AI agents. It runs no agents itself — it just
+holds workers, tasks, messages, and events, and lets agents find each other. You
+reach it through the `cluster` MCP server. There are two things you do with it.
 
 ## Connect
 
-The cluster's MCP server is at `http://localhost:8080/mcp/`. If your harness
-isn't pointed at it yet, add it (opencode example):
+If the `cluster` tools aren't available yet, add the MCP server (one-time):
 
-```jsonc
-{ "mcp": { "cluster": { "type": "remote", "url": "http://localhost:8080/mcp/", "enabled": true } } }
+- opencode: add to `opencode.jsonc` →
+  `"mcp": { "cluster": { "type": "remote", "url": "http://localhost:8080/mcp/", "enabled": true } }`
+- Claude Code: `claude mcp add --transport http cluster http://localhost:8080/mcp/`
+
+Then `register_worker(name, skills, personality, worker_id=<stable id>)` once and
+keep the id. Pick `skills` that describe what you can actually do (e.g. `coding`,
+`architecture`, `review`, `naming`).
+
+## 1. Delegate work to another agent
+
+You're in the middle of something and need another agent to handle a piece of it:
+
 ```
+create_task(
+  title="Implement the /login endpoint",
+  description="Per the spec in the conversation, add POST /login with validation.",
+  required_skill="coding",          # who should pick it up
+  path="D:/Repos/myapp/server",     # the folder they should work in
+)
+```
+
+That's it — you keep working. A worker with that skill will claim it, do the work
+in `path`, and `complete_task` with a result. Check back with `get_task(task_id)`
+or read the thread with `get_messages(task_id=...)`. Delegations can nest: the
+agent you delegated to can delegate further (`parent_id` links them).
+
+## 2. Stand by and pick up work (sentry mode)
+
+When you're a standby worker, loop on this — no polling, the call blocks until
+work exists:
+
+1. `wait_for_task(skills=[...your skills...])` → blocks, then returns `{"task": {...}}`
+   (or `{"task": null}` on timeout — just call it again).
+2. `claim_task(task_id, worker_id)`. `{"claimed": false}` → someone beat you, go to 1.
+3. `get_task(task_id)` — read the description, the `path`, and (if `parent_id` is set)
+   the parent's `result` for context.
+4. **Go to `path` and actually do the work** with your normal tools — edit files,
+   run commands, whatever the task needs. The cluster doesn't care how; that's your job.
+5. Need a different skill for part of it? `create_task(..., required_skill=<that>,
+   parent_id=<this task>, conversation_id=<this task's conversation_id>)` to delegate it.
+6. `send_message(sender=worker_id, content=<what you did>, task_id=..., conversation_id=...)`
+   so others can see your reasoning.
+7. `complete_task(task_id, result=<summary of what you did>)` (or `status="failed"`).
+8. Back to 1.
 
 ## Tools
 
-`register_worker` · `find_workers` · `list_open_tasks` · `get_task` ·
-`create_task` (delegate) · `claim_task` · `complete_task` · `send_message` ·
-`get_messages` · `search`
+`register_worker` · `find_workers` · `wait_for_task` (block for work) ·
+`list_open_tasks` · `get_task` · `create_task` (delegate, with `path`) ·
+`claim_task` · `complete_task` · `send_message` · `get_messages` · `search`
 
-## Loop
+## Notes
 
-1. `register_worker(name, skills, personality, worker_id=<stable id>)` once.
-   Keep the returned id. Reuse the same `worker_id` across restarts.
-2. `list_open_tasks(skill=<one of your skills>)`. Empty → you're done, stop.
-3. `claim_task(task_id, worker_id)`. `{"claimed": false}` → someone beat you,
-   back to step 2.
-4. `get_task(task_id)` for full detail. If it has a `parent_id`, read the
-   parent's `result` for context.
-5. Do the real work in plain text. Concrete and concise.
-6. Needs a skill you don't have? `create_task(title, description,
-   required_skill=<that skill>, parent_id=<this task>,
-   conversation_id=<task's conversation_id>)` to delegate it.
-7. `send_message(sender=worker_id, content=<your work>, task_id=<task_id>,
-   conversation_id=<task's conversation_id>)` so others see it.
-8. `complete_task(task_id, result=<your work>)` — or `status="failed"`.
-9. Back to step 2 until nothing matches your skills.
-
-## Rules
-
-- Match your behavior to your declared skills; don't grab tasks you can't do.
-- Post a message before completing, so your reasoning is visible to teammates.
-- Don't edit files or run shell commands on behalf of the cluster — your
-  deliverable is the text you post and complete.
-- Use `search(q)` to check whether related work or workers already exist before
-  duplicating effort.
+- You never call another agent directly. Everything is a task or a message.
+- Only claim tasks your skills actually cover.
+- `search(q)` first if you suspect the work — or a worker who can do it — already exists.
+- Different agents can run different providers/harnesses (minimax in opencode, a
+  local LM Studio model, Claude Code). The cluster treats them all the same.

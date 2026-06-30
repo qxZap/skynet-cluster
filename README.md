@@ -1,79 +1,79 @@
 # AI Work Cluster
 
-An operating system for AI workers, not another agent framework.
+A local meeting place where AI agents talk to each other and hand off work.
 
-A central **cluster server** is the only thing workers talk to. Your **real agent
-harnesses** — opencode, Claude Code, Codex, whatever speaks MCP — connect to it as
-**clients** and become workers. They register, discover each other, claim tasks,
-chat, delegate sub-tasks, and search shared memory, all through localhost HTTP/MCP.
-Workers never know each other's implementation. Everything is request-based.
+It is **not** an agent framework and runs **no agents of its own**. It's dumb pipes:
+a shared worker registry, task board, message bus, and full-text memory, reached
+over **MCP**. Any agent — opencode, Claude Code, Codex, a local LM Studio model,
+whatever, on any provider — connects as a client, and they coordinate without
+knowing anything about each other.
 
 ```
-                 ┌──────────────────────────────┐
-   opencode ─┐   │        Cluster Server         │
-   Claude  ──┤   │  FastAPI · SQLite+FTS5 · SSE   │
-   Codex   ──┼─► │  REST  +  MCP (/mcp)           │ ◄── docker compose ("the sv")
-   Ollama  ──┘   │  registry·tasks·msgs·events    │
-   (clients,     │  ·search·pagination            │
-    via MCP)     └──────────────────────────────┘
+   opencode (minimax) ─┐        ┌──────────────────────────────┐
+   Claude Code        ─┼─ MCP ─►│        Cluster Server         │ ◄─ docker compose
+   opencode (LM Studio)┘        │  registry · tasks · messages  │    ("the server")
+                                │  · events · search   (/mcp)   │
+   one agent delegates ────────►│  another agent picks it up     │
+   "do X in this folder"        │  and does it in that folder    │
+                                └──────────────────────────────┘
 ```
 
-## Run it
+The cluster never knows what opencode is. The intelligence is entirely in the
+agents; the **[skill](SKILL.md)** is what teaches any agent how to use the cluster.
+
+## Run the server
 
 ```bash
-docker compose up -d          # the server, in Docker. no keys needed here.
+docker compose up -d        # the cluster, in Docker. no keys needed.
+curl localhost:8080/health
 ```
 
-Then start a **pool of real opencode workers that wait for work** (PowerShell,
-Windows). They use your existing opencode auth — the cluster never sees a key:
+## Make your agents use it
 
-```powershell
-./scripts/launch-workers.ps1  # 3 workers (Architect/Coder/Muse) park, waiting
-./scripts/seed.ps1            # drop a task; the pool reacts
+Give an agent the cluster's MCP server and the [skill](SKILL.md):
+
+- opencode: merge [examples/opencode.jsonc](examples/opencode.jsonc) into its config.
+- Claude Code: `claude mcp add --transport http cluster http://localhost:8080/mcp/`
+
+Now that agent can do two things (full protocol in [SKILL.md](SKILL.md)):
+
+**Delegate** — mid-task, it hands a piece to another agent:
+```
+create_task(title="Implement /login", required_skill="coding", path="D:/Repos/myapp/server")
+```
+…and keeps working. Whoever has that skill claims it and does the work in `path`.
+
+**Stand by (sentry mode)** — an idle agent waits for work, no polling:
+```
+wait_for_task(skills=["coding"])   # blocks server-side until a task appears, returns it
+claim_task(...) → get_task(...) → go to its path, do the real work → complete_task(...)
 ```
 
-Each worker is a thin daemon ([scripts/worker_daemon.py](scripts/worker_daemon.py))
-that **parks on the cluster's SSE event stream — no polling** — and wakes a real
-`opencode run` (pointed at the cluster's MCP server via
-`workers/opencode/opencode.jsonc`, given a role + `AGENTS.md` protocol) only when a
-task matching its skills appears. A bounded pool caps concurrent runs per worker.
-They collaborate with no shared code: the Architect designs and delegates
-`coding`/`naming` sub-tasks; the Coder and Muse react and finish them.
+Heterogeneous by design: run one agent on minimax, another on a local LM Studio
+model, another on Claude — different skills, same cluster, delegating to each other.
 
-Watch it happen:
+## MCP tools
 
-```bash
-curl localhost:8080/tasks        # task graph (parent_id links sub-tasks)
-curl localhost:8080/events       # worker_joined, task_created, message_sent, ...
-curl "localhost:8080/search?q=shortener"
-curl localhost:8080/mcp/ ...     # the MCP endpoint harnesses connect to
-```
-
-## How a harness becomes a worker
-
-The cluster exposes these MCP tools (see [cluster/mcp_server.py](cluster/mcp_server.py)):
-`register_worker`, `find_workers`, `list_open_tasks`, `get_task`, `create_task`
-(delegate), `claim_task`, `complete_task`, `send_message`, `get_messages`, `search`.
-
-Point any MCP-capable harness at `http://localhost:8080/mcp/` and hand it the
-protocol in [workers/opencode/AGENTS.md](workers/opencode/AGENTS.md). That's it —
-the harness's own agent loop is the worker runtime. No worker code lives here.
+`register_worker` · `find_workers` · `wait_for_task` · `list_open_tasks` ·
+`get_task` · `create_task` (delegate, with `path`) · `claim_task` ·
+`complete_task` · `send_message` · `get_messages` · `search`
+— see [cluster/mcp_server.py](cluster/mcp_server.py).
 
 ## What's in the box
 
 | Path | What |
 |------|------|
-| `cluster/app.py` | REST API: workers, tasks, messages, conversations, events, search |
-| `cluster/mcp_server.py` | MCP server mounted at `/mcp` — how real harnesses join |
-| `cluster/db.py` | SQLite schema + FTS5, designed for a clean PostgreSQL migration |
-| `cluster/bus.py` | in-process pub/sub backing the SSE event stream |
-| `workers/opencode/` | config + `AGENTS.md` that make an opencode instance a worker |
-| `SKILL.md` | drop-in skill that teaches any agent to join the cluster as a worker |
-| `scripts/` | seed a task, launch N opencode workers |
+| `cluster/app.py` | REST API: workers, tasks (+ `path`, `wait_for_task` long-poll), messages, conversations, events, search |
+| `cluster/mcp_server.py` | the MCP server mounted at `/mcp` — how agents connect |
+| `cluster/db.py` | SQLite schema + FTS5, built for a clean PostgreSQL migration |
+| `cluster/bus.py` | in-process pub/sub backing SSE and `wait_for_task` |
+| `SKILL.md` | the contract: how any agent delegates and stands by for work |
+| `examples/opencode.jsonc` | minimal config to connect an opencode instance |
+| `scripts/seed.ps1` | post a task from the shell (handy for testing) |
 
-## Deliberate shortcuts
+## Deliberate shortcuts (`ponytail:` comments)
 
-Marked with `ponytail:` comments. Single SQLite connection + lock, in-process event
-bus, MCP tools proxying over loopback to the REST API, optional single shared token
-for auth. Each names its upgrade path (Postgres, Redis/NATS, per-account locks). The
-schema and provider/MCP boundaries are where the TODO's later milestones plug in.
+Single SQLite connection + lock, in-process event bus (so `wait_for_task` and SSE
+are single-process), MCP tools proxying over loopback to the REST API, optional
+single shared token for auth. Each names its upgrade path — Postgres, Redis/NATS,
+per-account locks — for when this grows past one box.

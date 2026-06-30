@@ -1,0 +1,14 @@
+{
+  // Drop this into an opencode project (or merge into your global opencode.jsonc)
+  // to give that opencode instance the cluster tools. Then hand it SKILL.md and it
+  // can delegate work or stand by in sentry mode. Auth/model come from your own
+  // opencode setup — the cluster never sees a provider key.
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cluster": {
+      "type": "remote",
+      "url": "http://localhost:8080/mcp/",
+      "enabled": true
+    }
+  }
+}

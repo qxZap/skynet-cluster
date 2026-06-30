@@ -61,12 +61,24 @@ async def get_task(task_id: str) -> dict:
 
 @mcp.tool()
 async def create_task(title: str, description: str = "", required_skill: str = "",
-                      parent_id: str = "", conversation_id: str = "") -> dict:
-    """Create a task. Set required_skill to delegate to a worker with that skill."""
+                      path: str = "", parent_id: str = "", conversation_id: str = "") -> dict:
+    """Delegate work. Set required_skill so a worker with that skill picks it up, and
+    path to the folder it should do the work in (an absolute or repo path)."""
     return await _call("POST", "/tasks", json={
         "title": title, "description": description,
-        "required_skill": required_skill or None, "parent_id": parent_id or None,
-        "conversation_id": conversation_id or None})
+        "required_skill": required_skill or None, "path": path or None,
+        "parent_id": parent_id or None, "conversation_id": conversation_id or None})
+
+
+@mcp.tool()
+async def wait_for_task(skills: list[str], timeout: int = 300) -> dict:
+    """Sentry mode. BLOCKS until an open task matching one of your skills appears,
+    then returns {"task": {...}} — claim it next. {"task": null} means it timed out;
+    just call this again. This is how a standby worker waits for work without polling."""
+    async with httpx.AsyncClient(base_url=SELF, headers=_H, timeout=timeout + 15) as c:
+        r = await c.get("/tasks/wait", params={"skills": ",".join(skills), "timeout": timeout})
+        r.raise_for_status()
+        return r.json()
 
 
 @mcp.tool()

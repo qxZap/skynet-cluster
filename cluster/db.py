@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   creator TEXT,
   assigned_worker TEXT,
   required_skill TEXT,
+  path TEXT,             -- working dir the claimer should do the work in
   priority INTEGER DEFAULT 0,
   parent_id TEXT,
   dependencies TEXT,      -- json array of task ids
@@ -94,6 +95,11 @@ def conn() -> sqlite3.Connection:
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.executescript(SCHEMA)
+        # ponytail: cheap idempotent migration for DBs created before `path` existed
+        try:
+            _conn.execute("ALTER TABLE tasks ADD COLUMN path TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already there
         _conn.commit()
     return _conn
 

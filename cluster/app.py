@@ -69,6 +69,7 @@ class TaskIn(BaseModel):
     creator: str | None = None
     assigned_worker: str | None = None
     required_skill: str | None = None
+    path: str | None = None
     priority: int = 0
     parent_id: str | None = None
     dependencies: list[str] = []
@@ -171,17 +172,17 @@ def create_task(t: TaskIn):
         )
     status = "assigned" if t.assigned_worker else "open"
     db.execute(
-        """INSERT INTO tasks(id,title,description,creator,assigned_worker,required_skill,priority,
+        """INSERT INTO tasks(id,title,description,creator,assigned_worker,required_skill,path,priority,
              parent_id,dependencies,status,conversation_id,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (tid, t.title, t.description, t.creator, t.assigned_worker, t.required_skill, t.priority,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (tid, t.title, t.description, t.creator, t.assigned_worker, t.required_skill, t.path, t.priority,
          t.parent_id, json.dumps(t.dependencies), status, conv, db.now(), db.now()),
     )
     db.index("task", tid, f"{t.title} {t.description}")
     emit("task_created", t.creator, tid, {
         "title": t.title, "required_skill": t.required_skill,
         "assigned_worker": t.assigned_worker, "parent_id": t.parent_id,
-        "conversation_id": conv, "description": t.description,
+        "conversation_id": conv, "description": t.description, "path": t.path,
     })
     return {"id": tid, "conversation_id": conv, "status": status}
 
@@ -203,6 +204,46 @@ def list_tasks(status: str | None = None, assigned_worker: str | None = None,
     sql += " ORDER BY seq DESC LIMIT ?"
     p.append(limit + 1)
     return paginate(db.query(sql, tuple(p)), limit)
+
+
+def _first_open_task(want: set[str]) -> dict | None:
+    rows = db.query(
+        "SELECT seq,* FROM tasks WHERE status='open' AND assigned_worker IS NULL "
+        "ORDER BY priority DESC, seq ASC")
+    for r in rows:
+        if not want or r["required_skill"] in want:
+            d = db.row_to_dict(r)
+            d.pop("seq", None)
+            return d
+    return None
+
+
+@app.get("/tasks/wait")
+async def wait_for_task(skills: str = "", timeout: int = 300):
+    """Sentry mode: block until an open task matching `skills` exists, then return it.
+    No polling on the wire — parks on the event bus. Returns {"task": null} on timeout."""
+    want = {s.strip() for s in skills.split(",") if s.strip()}
+    hit = _first_open_task(want)
+    if hit:
+        return {"task": hit}
+    q = bus.subscribe()
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + max(1, min(timeout, 600))
+    try:
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return {"task": None}
+            try:
+                ev = await asyncio.wait_for(q.get(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return {"task": None}
+            if ev.get("type") == "task_created":
+                d = ev.get("data", {})
+                if not d.get("assigned_worker") and (not want or d.get("required_skill") in want):
+                    return {"task": get_task(ev["ref_id"])}
+    finally:
+        bus.unsubscribe(q)
 
 
 @app.get("/tasks/{tid}")
