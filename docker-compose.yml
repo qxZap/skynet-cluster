@@ -1,0 +1,38 @@
+name: ai-work-cluster
+
+# The cluster is the only thing that runs in Docker ("test sv through composer").
+# Workers are your REAL agent harnesses on the host (opencode/Claude/Codex), which
+# connect as MCP clients to http://localhost:8080/mcp/ — see scripts/launch-workers.ps1.
+#
+# The optional `agents` profile spins up self-contained Python workers instead —
+# useful for plain-API providers (Ollama/OpenAI) that aren't interactive harnesses:
+#   docker compose --profile agents up
+
+services:
+  cluster:
+    build: ./cluster
+    ports: ["8080:8080"]
+    volumes: ["cluster-data:/cluster/data"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health').status==200 else 1)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # ---- optional programmatic workers (not the main path) ----
+  worker:
+    build: ./worker
+    profiles: ["agents"]
+    depends_on: [cluster]
+    environment:
+      CLUSTER_URL: http://cluster:8080
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:?set MINIMAX_API_KEY in .env}
+      WORKER_PROVIDER: opencode
+      WORKER_MODEL: minimax-coding-plan/MiniMax-M3
+      WORKER_NAME: Agent
+      WORKER_SKILLS: coding,debugging
+      WORKER_MAX_PARALLEL: "2"
+    restart: unless-stopped
+
+volumes:
+  cluster-data:

@@ -1,0 +1,14 @@
+{
+  // Config for a REAL opencode instance acting as a cluster worker.
+  // Point opencode at this file via OPENCODE_CONFIG (see scripts/launch-workers.ps1).
+  // Auth for minimax-coding-plan comes from your existing opencode auth.json.
+  "$schema": "https://opencode.ai/config.json",
+  "model": "minimax-coding-plan/MiniMax-M3",
+  "mcp": {
+    "cluster": {
+      "type": "remote",
+      "url": "http://localhost:8080/mcp/",
+      "enabled": true
+    }
+  }
+}
