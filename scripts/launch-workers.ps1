@@ -1,27 +1,28 @@
 <#
-Launch REAL opencode instances as cluster workers.
+Launch a POOL of real opencode workers that wait for work.
 
-Each worker is a plain `opencode run` driving the cluster's MCP tools — no coded
-harness. Workers run concurrently (one PowerShell job each) and sweep the cluster
-several times so delegated child tasks get picked up.
+Each worker is a persistent daemon (scripts/worker_daemon.py) that parks on the
+cluster's SSE event stream and wakes a real `opencode run` whenever a task matching
+its skills appears — event-driven, no polling. They keep running until you stop them.
 
-  ./scripts/launch-workers.ps1                 # 3 default workers, 3 sweeps each
-  ./scripts/launch-workers.ps1 -Rounds 5
-  ./scripts/launch-workers.ps1 -ClusterUrl http://localhost:8080
+  ./scripts/launch-workers.ps1            # 3 workers, waiting
+  ./scripts/seed.ps1                      # ...then drop work; the pool reacts
 
-Prereqs: cluster running (docker compose up -d), opencode logged into
-minimax-coding-plan, MCP url in workers/opencode/opencode.jsonc reachable.
+  Get-Job | Receive-Job -Keep             # see worker output
+  Get-Job | Stop-Job; Get-Job | Remove-Job   # stop the pool
+
+Prereqs: cluster running (docker compose up -d), python+httpx, opencode logged
+into the model.
 #>
 param(
-  [int]$Rounds = 3,
   [string]$ClusterUrl = "http://localhost:8080",
   [string]$Model = "minimax-coding-plan/MiniMax-M3"
 )
 
-$WorkerDir = Join-Path $PSScriptRoot "..\workers\opencode" | Resolve-Path
-$ConfigPath = Join-Path $WorkerDir "opencode.jsonc"
+$WorkerDir = (Join-Path $PSScriptRoot "..\workers\opencode" | Resolve-Path).Path
+$Daemon    = (Join-Path $PSScriptRoot "worker_daemon.py" | Resolve-Path).Path
+$Config    = (Join-Path $WorkerDir "opencode.jsonc")
 
-# role -> stable id, skills, personality
 $roles = @(
   @{ id="wkr-architect"; name="Architect"; skills="architecture,reasoning,review";
      persona="a pragmatic senior architect who plans before building and delegates implementation" },
@@ -31,32 +32,18 @@ $roles = @(
      persona="a creative thinker who names things and pitches ideas" }
 )
 
-$jobs = @()
 foreach ($r in $roles) {
-  $jobs += Start-Job -Name $r.name -ScriptBlock {
-    param($role, $rounds, $model, $workerDir, $configPath)
-    $env:OPENCODE_CONFIG = $configPath
-    Set-Location $workerDir
-    $prompt = @"
-You are '$($role.name)', a worker in a distributed AI cluster.
-Your skills: $($role.skills). Personality: $($role.persona).
-Follow the protocol in AGENTS.md exactly. When you call register_worker, pass
-worker_id='$($role.id)', name='$($role.name)', skills as a list of your skills,
-and your personality. Then run the loop: claim and complete every open task that
-matches your skills, delegating sub-tasks to other skills when needed. Stop when
-no open task matches your skills.
-"@
-    for ($i = 1; $i -le $rounds; $i++) {
-      Write-Output "=== $($role.name) sweep $i/$rounds ==="
-      opencode run -m $model --dangerously-skip-permissions $prompt 2>&1
-    }
-  } -ArgumentList $r, $Rounds, $Model, $WorkerDir.Path, $ConfigPath.Path
-  Write-Host "launched $($r.name) ($($r.id))"
+  Start-Job -Name $r.name -ScriptBlock {
+    param($role, $clusterUrl, $model, $daemon, $config)
+    $env:CLUSTER_URL = $clusterUrl
+    $env:WORKER_MODEL = $model
+    $env:OPENCODE_CONFIG = $config
+    python $daemon --name $role.name --id $role.id --skills $role.skills --persona $role.persona 2>&1
+  } -ArgumentList $r, $ClusterUrl, $Model, $Daemon, $Config | Out-Null
+  Write-Host "waiting worker up: $($r.name) ($($r.id)) [$($r.skills)]"
 }
 
-Write-Host "`nWorkers running as jobs. Stream output with:  Receive-Job -Name Architect -Wait"
-Write-Host "Watch the cluster:  curl $ClusterUrl/events  |  curl $ClusterUrl/tasks"
-Write-Host "Waiting for all workers to finish...`n"
-$jobs | Wait-Job | Out-Null
-foreach ($j in $jobs) { Write-Host "----- $($j.Name) -----"; Receive-Job $j }
-$jobs | Remove-Job
+Write-Host "`nPool is parked on $ClusterUrl, waiting for work."
+Write-Host "Seed a task:   ./scripts/seed.ps1"
+Write-Host "See output:    Get-Job | Receive-Job -Keep"
+Write-Host "Stop the pool: Get-Job | Stop-Job; Get-Job | Remove-Job"

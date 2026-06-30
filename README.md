@@ -24,18 +24,21 @@ Workers never know each other's implementation. Everything is request-based.
 docker compose up -d          # the server, in Docker. no keys needed here.
 ```
 
-Then turn your own opencode installs into workers (PowerShell, Windows). They use
-your existing opencode auth — the cluster never sees a provider key:
+Then start a **pool of real opencode workers that wait for work** (PowerShell,
+Windows). They use your existing opencode auth — the cluster never sees a key:
 
 ```powershell
-./scripts/seed.ps1            # drop a starting task
-./scripts/launch-workers.ps1  # launch 3 real opencode workers (Architect/Coder/Muse)
+./scripts/launch-workers.ps1  # 3 workers (Architect/Coder/Muse) park, waiting
+./scripts/seed.ps1            # drop a task; the pool reacts
 ```
 
-Each worker is a plain `opencode run` pointed at the cluster's MCP server
-(`workers/opencode/opencode.jsonc`) and given a role + `AGENTS.md` protocol. They
-collaborate with no shared code: the Architect designs and delegates `coding`/`naming`
-sub-tasks; the Coder and Muse claim and finish them.
+Each worker is a thin daemon ([scripts/worker_daemon.py](scripts/worker_daemon.py))
+that **parks on the cluster's SSE event stream — no polling** — and wakes a real
+`opencode run` (pointed at the cluster's MCP server via
+`workers/opencode/opencode.jsonc`, given a role + `AGENTS.md` protocol) only when a
+task matching its skills appears. A bounded pool caps concurrent runs per worker.
+They collaborate with no shared code: the Architect designs and delegates
+`coding`/`naming` sub-tasks; the Coder and Muse react and finish them.
 
 Watch it happen:
 
