@@ -102,6 +102,22 @@ async def complete_task(task_id: str, result: str, status: str = "completed") ->
 
 
 @mcp.tool()
+async def list_tasks(status: str = "", required_skill: str = "", assigned_worker: str = "",
+                     limit: int = 50) -> list:
+    """List tasks (optionally by status / skill / worker) — for monitoring delegated work."""
+    return (await _call("GET", "/tasks", params={
+        "status": status or None, "required_skill": required_skill or None,
+        "assigned_worker": assigned_worker or None, "limit": limit}))["items"]
+
+
+@mcp.tool()
+async def requeue_task(task_id: str) -> dict:
+    """Return a stuck task to the open pool so another sentry can take it — use when a
+    task is stuck 'assigned' because its worker died or gave up without completing."""
+    return await _call("POST", f"/tasks/{task_id}/requeue")
+
+
+@mcp.tool()
 async def send_message(sender: str, content: str, conversation_id: str = "",
                        task_id: str = "", receiver: str = "") -> dict:
     """Post a message to a conversation/task so other workers see your reasoning."""

@@ -195,7 +195,7 @@ def list_tasks(status: str | None = None, assigned_worker: str | None = None,
     p: list = []
     for col, val in (("status", status), ("assigned_worker", assigned_worker),
                      ("required_skill", required_skill), ("parent_id", parent_id)):
-        if val is not None:
+        if val:  # empty string (e.g. an omitted MCP arg) means "no filter", like the other list endpoints
             sql += f" AND {col}=?"
             p.append(val)
     if cursor:
@@ -219,17 +219,19 @@ def _first_open_task(want: set[str]) -> dict | None:
 
 
 @app.get("/tasks/wait")
-async def wait_for_task(skills: str = "", timeout: int = 300):
+async def wait_for_task(skills: str = "", timeout: int = 45):
     """Sentry mode: block until an open task matching `skills` exists, then return it.
     No polling on the wire — parks on the event bus. Returns {"task": null} on timeout."""
     want = {s.strip() for s in skills.split(",") if s.strip()}
-    hit = _first_open_task(want)
-    if hit:
-        return {"task": hit}
+    # Subscribe BEFORE the initial DB check, so a task created in the gap between
+    # "nothing open" and "start listening" lands in the queue instead of being lost.
     q = bus.subscribe()
-    loop = asyncio.get_event_loop()
-    deadline = loop.time() + max(1, min(timeout, 600))
     try:
+        hit = _first_open_task(want)
+        if hit:
+            return {"task": hit}
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + max(1, min(timeout, 300))
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
@@ -238,10 +240,13 @@ async def wait_for_task(skills: str = "", timeout: int = 300):
                 ev = await asyncio.wait_for(q.get(), timeout=remaining)
             except asyncio.TimeoutError:
                 return {"task": None}
-            if ev.get("type") == "task_created":
+            if ev.get("type") in ("task_created", "task_requeued"):
                 d = ev.get("data", {})
                 if not d.get("assigned_worker") and (not want or d.get("required_skill") in want):
-                    return {"task": get_task(ev["ref_id"])}
+                    t = get_task(ev["ref_id"])
+                    # re-check: another waiter may have claimed it between event and now
+                    if t.get("status") == "open" and not t.get("assigned_worker"):
+                        return {"task": t}
     finally:
         bus.unsubscribe(q)
 
@@ -283,6 +288,21 @@ def complete_task(tid: str, c: CompleteIn):
     db.index("task", tid, c.result)
     ev = "task_completed" if c.status == "completed" else "task_failed"
     emit(ev, r["assigned_worker"], tid, {"status": c.status})
+    return {"ok": True}
+
+
+@app.post("/tasks/{tid}/requeue", dependencies=[Depends(auth)])
+def requeue_task(tid: str):
+    """Return a stuck task to the open pool (e.g. its worker died mid-work) so another
+    sentry can claim it. Wakes anyone parked on wait_for_task for that skill."""
+    r = db.query_one("SELECT required_skill,path,conversation_id FROM tasks WHERE id=?", (tid,))
+    if not r:
+        raise HTTPException(404, "no such task")
+    db.execute("UPDATE tasks SET status='open', assigned_worker=NULL, updated_at=? WHERE id=?",
+               (db.now(), tid))
+    emit("task_requeued", None, tid, {
+        "required_skill": r["required_skill"], "assigned_worker": None,
+        "path": r["path"], "conversation_id": r["conversation_id"]})
     return {"ok": True}
 
 
