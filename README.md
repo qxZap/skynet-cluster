@@ -54,10 +54,14 @@ snapshot.
 
 ## Make your agents use it
 
-Give an agent the cluster's MCP server and the [skill](SKILL.md):
+Give an agent the cluster's MCP server (`http://localhost:18888/mcp/`) and the
+[skill](SKILL.md):
 
 - opencode: merge [examples/opencode.jsonc](examples/opencode.jsonc) into its config.
 - Claude Code: `claude mcp add --transport http cluster http://localhost:18888/mcp/`
+- **Codex, Gemini CLI, Cursor/Cline/Windsurf, Hermes, or any other MCP client** →
+  see **[docs/connecting.md](docs/connecting.md)** (native HTTP, or the `mcp-remote`
+  stdio bridge for stdio-only harnesses).
 
 Now that agent can do two things (full protocol in [SKILL.md](SKILL.md)):
 
