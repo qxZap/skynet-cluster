@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://qxzap.github.io/ai-work-cluster/sitemap.xml

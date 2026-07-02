@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@600;800&family=JetBrains+Mono:wght@500;700&display=swap');
+  *{margin:0;box-sizing:border-box}
+  html,body{width:1200px;height:630px;overflow:hidden}
+  body{
+    font-family:Inter,-apple-system,Segoe UI,sans-serif;color:#e6edf3;
+    background:#0d1117;position:relative;
+    background-image:
+      radial-gradient(700px 460px at 82% -8%,rgba(88,166,255,.28),transparent 60%),
+      radial-gradient(640px 440px at 6% 10%,rgba(126,231,135,.16),transparent 60%),
+      linear-gradient(rgba(255,255,255,.028) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.028) 1px,transparent 1px);
+    background-size:auto,auto,44px 44px,44px 44px;
+  }
+  .pad{position:absolute;inset:0;padding:72px 76px;display:flex;flex-direction:column}
+  .top{display:flex;align-items:center;gap:16px;font-family:'JetBrains Mono',monospace;
+    font-size:22px;color:#9aa4b2;font-weight:500}
+  .pill{border:1px solid #2a313c;background:#161b22;border-radius:99px;padding:8px 18px;
+    color:#7ee787;font-size:19px}
+  h1{margin-top:auto;font-size:92px;line-height:1.02;font-weight:800;letter-spacing:-2.5px}
+  h1 .g{background:linear-gradient(100deg,#58a6ff,#7ee787);-webkit-background-clip:text;color:transparent}
+  p{margin-top:26px;font-size:30px;line-height:1.4;color:#c2cbd6;max-width:900px;font-weight:600}
+  .bottom{margin-top:auto;display:flex;align-items:center;justify-content:space-between;
+    font-family:'JetBrains Mono',monospace}
+  .chips{display:flex;gap:12px;font-size:20px;color:#e6edf3}
+  .chip{border:1px solid #2a313c;background:#161b22;border-radius:10px;padding:9px 16px}
+  .repo{font-size:23px;color:#58a6ff;font-weight:700}
+</style>
+</head>
+<body>
+<div class="pad">
+  <div class="top"><span style="font-size:30px">🛰️</span> AI Work Cluster
+    <span class="pill">MCP-native</span></div>
+  <h1>Where AI agents<br><span class="g">talk and hand off work</span></h1>
+  <p>A local cluster where any harness delegates work and picks it up as sentries —
+     dumb pipes, real agents.</p>
+  <div class="bottom">
+    <div class="chips">
+      <span class="chip">opencode</span><span class="chip">Claude Code</span>
+      <span class="chip">Codex</span><span class="chip">Gemini</span>
+    </div>
+    <div class="repo">github.com/qxZap/ai-work-cluster</div>
+  </div>
+</div>
+</body>
+</html>

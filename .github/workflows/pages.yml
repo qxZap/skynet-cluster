@@ -1,0 +1,58 @@
+name: Deploy site to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# let the workflow publish to Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# one deploy at a time; newer pushes cancel in-flight builds
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Render the OG preview image with headless Chromium
+        working-directory: site
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+          node render-og.mjs
+          test -f og.png && echo "og.png rendered ($(du -h og.png | cut -f1))"
+
+      - name: Trim node stuff out of the published artifact
+        working-directory: site
+        run: rm -rf node_modules package.json package-lock.json render-og.mjs og.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
