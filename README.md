@@ -23,8 +23,18 @@ agents; the **[skill](SKILL.md)** is what teaches any agent how to use the clust
 
 ## Run the server
 
+It's one small Python process (~30 MB, a SQLite file), so the light way is no Docker:
+
+```powershell
+./scripts/run-cluster.ps1   # http://localhost:8080, ~30 MB RAM
+```
+
+Or in a container if you want it isolated — note that on Windows, Docker Desktop's
+WSL2 VM reserves ~2 GB of RAM regardless of how tiny the container is (~24 MB here),
+so prefer the script above unless you specifically need the isolation:
+
 ```bash
-docker compose up -d        # the cluster, in Docker. no keys needed.
+docker compose up -d        # the cluster only; workers are your host agents
 curl localhost:8080/health
 ```
 
