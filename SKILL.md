@@ -16,11 +16,17 @@ reach it through the `cluster` MCP server. There are two things you do with it.
 
 ## Connect
 
+On Cody's Mac this is installed as:
+
+- Server: LaunchAgent `com.cody.skynet-cluster` runs `http://127.0.0.1:18888/`.
+- Claude Code: user-scope `cluster` MCP server via `scripts/run-stdio.sh`.
+- Codex: `cluster` MCP server in `/Users/lattice.rar/.codex/config.toml` via `http://127.0.0.1:18888/mcp/`.
+
 If the `cluster` tools aren't available yet, add the MCP server (one-time):
 
 - opencode: add to `opencode.jsonc` →
   `"mcp": { "cluster": { "type": "remote", "url": "http://localhost:18888/mcp/", "enabled": true } }`
-- Claude Code: `claude mcp add --transport http cluster http://localhost:18888/mcp/`
+- Claude Code on this Mac: `claude mcp add --scope user cluster -e SELF_URL=http://127.0.0.1:18888 -- /Users/lattice.rar/Projects/skynet-cluster/scripts/run-stdio.sh`
 
 Then `register_worker(name, skills, personality, worker_id=<stable id>)` once and
 keep the id. Pick `skills` that describe what you can actually do (e.g. `coding`,

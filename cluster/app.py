@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import bus, db
-from .mcp_server import mcp, mcp_app
+from .mcp_server import mcp, mcp_app, mcp_sse_app
 
 TOKEN = os.environ.get("CLUSTER_TOKEN")  # one shared token; unset = open (localhost)
 
@@ -450,6 +450,7 @@ async def stream_events():
 
 # real agent harnesses connect here as workers
 app.mount("/mcp", mcp_app)
+app.mount("/", mcp_sse_app)
 
 
 _DASHBOARD_HTML = """<!doctype html><html><head><meta charset=utf-8>

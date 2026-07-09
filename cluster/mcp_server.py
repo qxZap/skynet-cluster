@@ -144,3 +144,4 @@ async def search(q: str, kind: str = "") -> list:
 
 
 mcp_app = mcp.streamable_http_app()
+mcp_sse_app = mcp.sse_app()
